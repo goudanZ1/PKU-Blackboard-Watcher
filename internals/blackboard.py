@@ -109,7 +109,13 @@ class Blackboard:
 
         return calendar_data
 
-    def get_assignment_html(self, calendar_id: str) -> str:
+    def get_assignment_html_from_notice(self, uri: str) -> str:
+        """由 notice entry 中的 uri 获取对应作业的上传页面"""
+
+        assignment_response = self.session.get(f"https://course.pku.edu.cn{uri}")
+        return assignment_response.text
+
+    def get_assignment_html_from_calendar(self, calendar_id: str) -> str:
         """由 calendar_id 获取对应作业的上传页面"""
 
         assignment_response = self.session.get(
