@@ -7,7 +7,7 @@ import pytz
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_PATH = os.path.join(PROJECT_DIR, "config.ini")
-RECORD_DIR = os.path.join(PROJECT_DIR, "..", "record")
+RECORD_DIR = os.path.join(os.path.dirname(PROJECT_DIR), "record")
 NOTICE_RECORD_PATH = os.path.join(RECORD_DIR, "notice_record.json")
 ASSIGNMENT_RECORD_PATH = os.path.join(RECORD_DIR, "assignment_record.json")
 
@@ -113,11 +113,11 @@ def parse_instruction(assignment_html: str) -> str:
         info_div = soup.find("div", id="assignmentInfo")
         if info_div is not None:
             for index, tag in enumerate(info_div.find_all("a")):
-                text += f"\n附件{index + 1}：{tag.get_text()}"
+                text += f"\n附件{index + 1}：{tag.get_text().strip()}"
     else:  # 未提交过该作业
         instructions_div = soup.find("li", id="instructions")
         if instructions_div is not None:
             for index, tag in enumerate(instructions_div.find_all("a")):
-                text += f"\n附件{index + 1}：{tag.get_text()}"
+                text += f"\n附件{index + 1}：{tag.get_text().strip()}"
 
     return text

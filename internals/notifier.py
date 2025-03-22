@@ -25,7 +25,7 @@ class Notifier:
         elif self.method == "sct":
             notify_success = self._sct_notify(subject, body)
             if not notify_success:
-                log(f"Ignore SCT notify failure and go on ({subject})")
+                log(f"Ignore SCT notify failure and go on: {subject}")
                 return
         elif self.method == "sc3":
             self._sc3_notify(subject, body, tag)

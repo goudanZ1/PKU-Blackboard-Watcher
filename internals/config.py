@@ -35,10 +35,8 @@ def get_config() -> tuple[dict, dict, dict, dict]:
         "notify_notice": config["notice"].getboolean("notify_notice", False),
         "title_prefix": config["notice"].get("title_prefix", "").replace("@", " "),
         "display_time": config["notice"].getboolean("display_time", True),
-        "allowed_events": config["notice"].get("allowed_events", "123"),
-        "blocked_courses": [
-            s.strip() for s in config["notice"].get("blocked_courses", "").split("&") if len(s.strip()) > 0
-        ],
+        "general_allowed_events": config["notice"].get("general_allowed_events", "123"),
+        "specific_course_events": dict(config["notice:specific"]),
         "alias": dict(config["alias"]),
     }
 

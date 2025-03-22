@@ -16,26 +16,29 @@ class CalendarHandler:
     def filter_assignment_info(self, entry: dict) -> dict:
         """从一个原始 assignment entry 中提取有效信息，并整合为一条 record"""
 
+        id = entry["id"]
+        time = convert_timezone(entry["endDate"])
         course = remove_suffix(entry["calendarName"])
+        title = entry["title"]
         description = entry.get("description", "")
-        attempted = False
+        should_notify = True  # 用户自定义的事件默认需要提醒
+
+        # 如果该日程是一个作业 DDL：若用户已提交过该作业则不用提醒，否则在 description 里加入作业要求并提醒
         if course != "个人":
-            # 如果是一个作业 ddl，判断用户有没有提交过该作业
-            # 已提交过则不提醒，未提交过则在 description 里加入作业要求并提醒
-            assignment_html = self.blackboard.get_assignment_html_from_calendar(entry["id"])
-            attempted = has_attempted(assignment_html)
-            if not attempted:
+            assignment_html = self.blackboard.get_assignment_html_from_calendar(id)
+            should_notify = not has_attempted(assignment_html)
+            if should_notify:
                 instruction = parse_instruction(assignment_html)
                 if len(instruction) > 0:
                     description += f"\n{instruction}"
 
         return {
-            "id": entry["id"],
-            "time": convert_timezone(entry["endDate"]),
+            "id": id,
+            "time": time,
             "course": course,
-            "title": entry["title"],
-            "description": description.strip(),
-            "has_attempted": attempted,
+            "title": title,
+            "description": description.strip(),  # 防止 description 以换行符开头
+            "should_notify": should_notify,
         }
 
     def notify_assignment(self, record: dict):
@@ -85,23 +88,22 @@ class CalendarHandler:
         updated_assignment_record = []
         for entry in calendar_data:
             if entry["id"] not in old_assignment_ids:
-                # 对用户自定义的事件，只要事件当天 0 点在查询的时间范围内，就会出现在返回的查询结果中，
-                # 因此需要手动再检测一下事件截止日期是否在从现在开始的 advance_hours 小时之内
-                if entry["calendarName"] != "个人" or test_within_hours(entry["endDate"], self.advance_hours):
-                    updated_assignment_record.append(self.filter_assignment_info(entry))
+                updated_assignment_record.append(self.filter_assignment_info(entry))
 
-        # 4. 对其中用户自定义的事件和未提交过的作业进行提醒
-        for record in updated_assignment_record:
-            if not record["has_attempted"]:
-                self.notify_assignment(record)
-
-        # 5. 若程序第一次运行到这里（record 文件还不存在），通知用户程序运行成功，顺便测试提醒消息
-        #    能否正常发送（上一步中可能没有需要提醒的日程）
+        # 4. 若程序第一次运行到这里（record 文件还不存在），通知用户程序运行成功，顺便测试提醒消息
+        #    能否正常发送（下一步中可能没有需要提醒的日程）
         if is_init:
             self.notifier.notify_message(
                 "[GitHub] 日程提醒模块首次运行成功！",
                 "之后就可以自动在作业、事件截止前提醒您了~",
             )
+
+        # 5. 对用户自定义的事件和未提交过的作业进行提醒
+        for record in updated_assignment_record:
+            if record["should_notify"]:
+                self.notify_assignment(record)
+            else:
+                log(f"Assignment ignored: {record['course']}-{record['title']}")
 
         # 6. 如果配置没有问题、之前的流程都成功完成（没有中途 exit），更新现在已处理过的日程记录
         #   （未提醒的只有已经提交过的作业，也保存在记录中，以后不必再处理）

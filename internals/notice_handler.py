@@ -6,23 +6,41 @@ from .notifier import Notifier
 class NoticeHandler:
 
     def __init__(self, notice_config: dict, blackboard: Blackboard, notifier: Notifier):
-        self.is_init: str | None = None
+        self.is_init: bool | None = None
         self.title_prefix: str = notice_config["title_prefix"]
         self.display_time: bool = notice_config["display_time"]
-        self.allowed_events: str = notice_config["allowed_events"]  # "123"
-        self.blocked_courses: list[str] = notice_config["blocked_courses"]
+        self.general_allowed_events: str = notice_config["general_allowed_events"]  # "123"
+        self.specific_course_events: dict = notice_config["specific_course_events"]  # "course": "123"
         self.alias: dict = notice_config["alias"]
         self.blackboard = blackboard
         self.notifier = notifier
 
+    def is_event_allowed(self, course: str, event: str) -> bool:
+        """检查一个 event 是否在该课程需要提醒的 events 范围中"""
+
+        allowed_events = self.specific_course_events.get(course.lower(), self.general_allowed_events)
+        # 读取 ini 文件时键名会自动转为小写，如果课程名里有大写字母需要先化成小写再匹配
+
+        if event.startswith("AS"):
+            return "1" in allowed_events
+        elif event.startswith("CO"):
+            return "2" in allowed_events
+        else:
+            return "3" in allowed_events
+
     def filter_notice_info(self, entry: dict, course_dict: dict) -> dict:
         """从一个原始 notice entry 中提取有效信息，并整合为一条 record"""
 
-        event = entry.get("extraAttribs", {}).get("event_type", "")
+        id = entry["se_id"]
+        time = convert_to_time(entry["se_timestamp"])
+        course = course_dict.get(entry.get("se_courseId"), "")
+        title = parse_title(entry.get("se_context", ""))
         content = parse_content(entry.get("se_details", ""))
-        if not self.is_init and event == "AS:AS_AVAIL" and "se_itemUri" in entry:
-            # 如果事件类型是作业可用，在 content 里加入作业要求和截止时间
-            # 如果是 is_init 就没必要，这些记录都不会发送给用户
+        event = entry.get("extraAttribs", {}).get("event_type", "")
+        should_notify = self.is_event_allowed(course, event)
+
+        # 如果事件类型是作业可用而且这条 record 会被发送给用户，在 content 里加入作业要求和截止时间
+        if event == "AS:AS_AVAIL" and "se_itemUri" in entry and should_notify and not self.is_init:
             assignment_html = self.blackboard.get_assignment_html_from_notice(entry["se_itemUri"])
             instruction = parse_instruction(assignment_html)
             if len(instruction) > 0:
@@ -32,27 +50,14 @@ class NoticeHandler:
                 content += f"\n截止时间：{convert_timezone(deadline_utc)}"
 
         return {
-            "id": entry["se_id"],
-            "time": convert_to_time(entry["se_timestamp"]),
-            "course": course_dict.get(entry.get("se_courseId"), ""),
-            "title": parse_title(entry.get("se_context", "")),
-            "content": content.strip(),
+            "id": id,
+            "time": time,
+            "course": course,
+            "title": title,
+            "content": content.strip(),  # 防止 content 以换行符开头
             "event": event,
+            "should_notify": should_notify,
         }
-
-    def is_notify_allowed(self, record: dict) -> bool:
-        """检查一个新的 notice record 是否符合用户的提醒配置"""
-
-        if record["course"] in self.blocked_courses:
-            return False
-
-        event_type = record["event"]
-        if event_type.startswith("AS"):
-            return "1" in self.allowed_events
-        elif event_type.startswith("CO"):
-            return "2" in self.allowed_events
-        else:
-            return "3" in self.allowed_events
 
     def notify_notice(self, record: dict):
         """由 notice record 生成对应的消息标题与内容，并发送给用户"""
@@ -104,11 +109,13 @@ class NoticeHandler:
                 f"初始化已完成，从教学网同步了 {len(updated_notice_record)} 条已有通知。之后就可以自动检测新的通知并提醒您了~",
             )
 
-        # 否则根据用户的屏蔽配置，选择性地对新通知进行提醒
+        # 否则根据用户对课程与 event 的屏蔽设置，选择性地对新通知进行提醒
         else:
             for record in updated_notice_record:
-                if self.is_notify_allowed(record):
+                if record["should_notify"]:
                     self.notify_notice(record)
+                else:
+                    log(f"Notice ignored: {record['course']}-{record['title']}")
 
         # 5. 如果配置没有问题、之前的流程都成功完成（没有中途 exit），更新现在已处理过的通知记录
         #   （由于用户屏蔽而没有提醒的通知也保存在记录中，以后不必再处理）

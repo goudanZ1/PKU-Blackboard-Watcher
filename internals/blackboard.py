@@ -1,6 +1,6 @@
 import requests
 from time import sleep
-from .common import get_current_timestamp
+from .common import get_current_timestamp, test_within_hours
 
 
 class Blackboard:
@@ -93,7 +93,7 @@ class Blackboard:
         calendar_response = self.session.get(
             "https://course.pku.edu.cn/webapps/calendar/calendarData/selectedCalendarEvents",
             params={
-                "start": current_timestamp,
+                "start": current_timestamp - 3 * 3600000,
                 "end": current_timestamp + advance_hours * 3600000,
                 "course_id": "",
                 "mode": "personal",
@@ -107,7 +107,11 @@ class Blackboard:
             print(f"original response: \n{calendar_response.text}")
             exit(1)
 
-        return calendar_data
+        # 事实上只要查询的时间范围涉及了日程所在的那天，该日程就会出现在返回的查询结果中
+        # （似乎只有 isDateRangeLimited 属性为 false 的少部分课程作业是反例，它们只有截止时间在范围内才会被查询到）
+        # 因此需要手动再检查一下日程截止时间是否在从现在开始的 advance_hours 小时之内
+        # 稳妥起见，已经过去的 DDL（截止时间在现在之前）不会被筛掉，还是要告知用户一下的
+        return [entry for entry in calendar_data if test_within_hours(entry["endDate"], advance_hours)]
 
     def get_assignment_html_from_notice(self, uri: str) -> str:
         """由 notice entry 中的 uri 获取对应作业的上传页面"""
