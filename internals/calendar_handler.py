@@ -70,7 +70,7 @@ class CalendarHandler:
 
         # 1. 查询从现在开始 advance_hours 小时内的所有日程（包括作业和用户自定义的事件）
         if self.advance_hours <= 0:
-            print("'advance_hours' not a positive integer, please check config.ini")
+            log("'advance_hours' not a positive integer, please check config.ini")
             exit(1)
         calendar_data = self.blackboard.get_calendar_data(self.advance_hours)
 
@@ -103,11 +103,12 @@ class CalendarHandler:
             if record["should_notify"]:
                 self.notify_assignment(record)
             else:
-                log(f"Assignment ignored: {record['course']}-{record['title']}")
+                log(f"Assignment ignored: {record['title']}（{record['course']}）")
 
         # 6. 如果配置没有问题、之前的流程都成功完成（没有中途 exit），更新现在已处理过的日程记录
         #   （未提醒的只有已经提交过的作业，也保存在记录中，以后不必再处理）
         if is_init or len(updated_assignment_record) > 0:
             new_assignment_record = old_assignment_record + updated_assignment_record
             write_record_json(ASSIGNMENT_RECORD_PATH, new_assignment_record)
-            log(f"Successfully processed {len(updated_assignment_record)} assignments")
+        
+        log(f"Successfully processed {len(updated_assignment_record)} assignments")

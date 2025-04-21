@@ -6,13 +6,13 @@ from internals.common import log, CONFIG_PATH
 def get_config() -> tuple[dict, dict, dict, dict]:
 
     secret_names = ["iaaa_username", "iaaa_password", "email_address", "email_password", "sendkey"]
-    secret_values = [os.getenv(name) for name in secret_names]
+    secret_values = [os.getenv(name).strip() for name in secret_names]
     # 如果 secrets.XX 未设置，在设置环境变量 xx: ${{ secrets.XX }} 时会传入空串，因此 os.getenv("xx") 得到空串而不是 None
     given_secrets = [name for name, value in zip(secret_names, secret_values) if len(value) > 0]
     log(f"Secrets given: {given_secrets}")
 
     if not os.path.exists(CONFIG_PATH):
-        print("File config.ini not found in the project directory")
+        log("File config.ini not found in the project directory")
         exit(1)
 
     config = ConfigParser()

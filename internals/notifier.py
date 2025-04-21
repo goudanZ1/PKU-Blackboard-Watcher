@@ -14,27 +14,32 @@ class Notifier:
         self.password: str = notify_config["password"]
         self.sender: str = notify_config["sender"]
         self.sendkey: str = notify_config["sendkey"]
+        self.status: int = 0  # 0 为发送成功, 1 为发送失败，2 为超过发送次数限制
 
     def notify_message(self, subject: str, body: str, tag: str = ""):
         """用 method 指定的方式向用户发送提醒消息"""
 
-        if self.method == "email":
-            self._email_notify(subject, body)
-        elif self.method == "bark":
-            self._bark_notify(subject, body, tag)
-        elif self.method == "sct":
-            notify_success = self._sct_notify(subject, body)
-            if not notify_success:
-                log(f"Ignore SCT notify failure and go on: {subject}")
-                return
-        elif self.method == "sc3":
-            self._sc3_notify(subject, body, tag)
-        else:
-            print("The notification method must be 'email', 'bark', 'sc3' or 'sct'")
-            print("Please check config.ini")
-            exit(1)
+        if self.status != 2:  # self.status == 0
+            if self.method == "email":
+                self._email_notify(subject, body)
+            elif self.method == "bark":
+                self._bark_notify(subject, body, tag)
+            elif self.method == "sct":
+                self._sct_notify(subject, body)
+            elif self.method == "sc3":
+                self._sc3_notify(subject, body, tag)
+            else:
+                log("The notification method must be 'email', 'bark', 'sc3' or 'sct'")
+                log("Please check config.ini")
+                self.status = 1
 
-        log(f"Successfully sended a notification message by {self.method}: {subject}")
+        if self.status == 0:
+            log(f"Successfully sended a notification message by {self.method}: {subject}")
+        elif self.status == 1:
+            log(f"Failed to send the notification message by {self.method}: {subject}")
+            exit(1)
+        else:
+            log(f"SCT limit reached, ignore notify failure and go on: {subject}")
 
     def _email_notify(self, subject: str, body: str):
         """登录到邮箱并给自己发送提醒邮件"""
@@ -45,10 +50,11 @@ class Notifier:
         elif domain in {"pku.edu.cn", "qq.com", "163.com", "126.com"}:
             host = f"smtp.{domain}"
         else:
-            print("Your email address must end with one of the following:")
-            print("@stu.pku.edu.cn, @pku.edu.cn, @qq.com, @163.com, @126.com")
-            print("Please check repository secrets")
-            exit(1)
+            log("Your email address must end with one of the following:")
+            log("@stu.pku.edu.cn, @pku.edu.cn, @qq.com, @163.com, @126.com")
+            log("Please check repository secrets")
+            self.status = 1
+            return
 
         message = MIMEText(body, "plain")
         message["From"] = formataddr((self.sender, self.email))
@@ -61,9 +67,9 @@ class Notifier:
             server.sendmail(self.email, self.email, message.as_string())
             server.quit()
         except Exception as e:
-            print(f"Email notify fail: {e}")
-            print("Please check your email address and password (authorization code) in repository secrets")
-            exit(1)
+            log(f"Email notify failed: {e}")
+            log("Please check your email address and password (authorization code) in repository secrets")
+            self.status = 1
 
     def _bark_notify(self, subject: str, body: str, tag: str):
         """向 Bark App 发推送"""
@@ -81,16 +87,17 @@ class Notifier:
         try:
             response_data = response.json()
         except Exception as e:
-            print(f"Bark notify exception: {e}")
-            print(f"original response: \n{response.text}")
-            exit(1)
+            log(f"Bark notify exception: {e}")
+            log(f"original response: \n{response.text}")
+            self.status = 1
+            return
 
         if response_data["code"] != 200:
-            print(f"Bark notify fail: {response_data['message']}")
-            print("Please check your Bark sendkey in repository secrets")
-            exit(1)
+            log(f"Bark notify failed: {response_data['message']}")
+            log("Please check your Bark sendkey in repository secrets")
+            self.status = 1
 
-    def _sct_notify(self, subject: str, body: str) -> bool:
+    def _sct_notify(self, subject: str, body: str):
         """使用 Server酱Turbo 通过微信服务号发送消息"""
 
         response = requests.post(
@@ -106,20 +113,20 @@ class Notifier:
         try:
             response_data = response.json()
         except Exception as e:
-            print(f"SCT notify exception: {e}")
-            print(f"original response: \n{response.text}")
-            exit(1)
+            log(f"SCT notify exception: {e}")
+            log(f"original response: \n{response.text}")
+            self.status = 1
+            return
 
         if response_data["code"] != 0:
-            print(f"SCT notify fail: {response_data['info']}")
+            log(f"SCT notify failed: {response_data['info']}")
             if response_data["code"] == 40001 and response_data["scode"] == 471:  # 超过发送次数限制
-                # 认为这条记录已经处理过，回到主流程去保存记录文件
+                # 忽略发送失败，仍然认为这条记录已经处理过，回到主流程去保存记录文件
                 # 每天的 5 条消息额度只用来发当天的消息，不用于发送积压消息
-                return False
+                self.status = 2
             else:
-                print("Please check your SCT sendkey in repository secrets")
-                exit(1)
-        return True
+                log("Please check your SCT sendkey in repository secrets")
+                self.status = 1
 
     def _sc3_notify(self, subject: str, body: str, tag: str):
         """使用 Server酱3 发送消息"""
@@ -127,9 +134,10 @@ class Notifier:
         # 从 sendkey 中提取 uid
         match = re.match(r"^sctp(\d+)t", self.sendkey)
         if match is None:
-            print("SC3 notify fail: sendkey must follow a format like 'sctp{<number>}t...'")
-            print("Please check your SC3 sendkey in repository secrets")
-            exit(1)
+            log("SC3 notify failed: sendkey must follow a format like 'sctp{<number>}t...'")
+            log("Please check your SC3 sendkey in repository secrets")
+            self.status = 1
+            return
         uid = match.group(1)
 
         response = requests.post(
@@ -145,11 +153,12 @@ class Notifier:
         try:
             response_data = response.json()
         except Exception as e:
-            print(f"SC3 notify exception: {e}")
-            print(f"original response: \n{response.text}")
-            exit(1)
+            log(f"SC3 notify exception: {e}")
+            log(f"original response: \n{response.text}")
+            self.status = 1
+            return
 
         if response_data["code"] != 0:
-            print(f"SC3 notify fail: {response_data['error']}")
-            print("Please check your SC3 sendkey in repository secrets")
-            exit(1)
+            log(f"SC3 notify failed: {response_data['error']}")
+            log("Please check your SC3 sendkey in repository secrets")
+            self.status = 1

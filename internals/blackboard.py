@@ -1,6 +1,6 @@
 import requests
 from time import sleep
-from .common import get_current_timestamp, test_within_hours
+from .common import log, get_current_timestamp, test_within_hours
 
 
 class Blackboard:
@@ -19,36 +19,68 @@ class Blackboard:
         """登录到教学网"""
 
         # IAAA 登录，响应头分配一个 iaaa.pku.edu.cn/ 下的 cookie JSESSIONID，响应体包含一个 token
-        iaaa_response = self.session.post(
-            "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do",
-            data={
-                "appid": "blackboard",
-                "userName": self.username,
-                "password": self.password,
-                "redirUrl": "http://course.pku.edu.cn/webapps/bb-sso-BBLEARN/execute/authValidate/campusLogin",
-            },
-        )
+        # 可能出现各种偶发连接问题，给 3 次重试机会
+        retry = 3
+        while True:
+            try:
+                iaaa_response = self.session.post(
+                    "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do",
+                    data={
+                        "appid": "blackboard",
+                        "userName": self.username,
+                        "password": self.password,
+                        "redirUrl": "http://course.pku.edu.cn/webapps/bb-sso-BBLEARN/execute/authValidate/campusLogin",
+                    },
+                )
+                break
+            except Exception as e:
+                log(f"IAAA connection failed: {e}")
+                retry -= 1
+                if retry >= 0:
+                    sleep(3)
+                    log(f"Retrying IAAA connection... ({retry} times left)")
+                else:
+                    exit(1)
 
+        log("IAAA connection success")
+        
         try:
             iaaa_data = iaaa_response.json()
         except Exception as e:
-            print(f"IAAA login exception: {e}")
-            print(f"original response: \n{iaaa_response.text}")
+            log(f"IAAA login exception: {e}")
+            log(f"original response: \n{iaaa_response.text}")
             exit(1)
 
         if iaaa_data["success"]:
             token = iaaa_data["token"]
         else:
-            print("IAAA login fail, please check your username and password in repository secrets")
+            log("IAAA login failed, please check your username and password in repository secrets")
             exit(1)
 
+        log("IAAA login success")
+
         # 教学网登录，响应头分配一个 course.pku.edu.cn/ 下的 cookie s_session_id
-        campus_response = self.session.get(
-            "http://course.pku.edu.cn/webapps/bb-sso-BBLEARN/execute/authValidate/campusLogin",
-            params={
-                "token": token,
-            },
-        )
+        # 可能出现各种偶发连接问题，给 3 次重试机会
+        retry = 3
+        while True:
+            try:
+                campus_response = self.session.get(
+                    "http://course.pku.edu.cn/webapps/bb-sso-BBLEARN/execute/authValidate/campusLogin",
+                    params={
+                        "token": token,
+                    },
+                )
+                break
+            except Exception as e:
+                log(f"Blackboard connection failed: {e}")
+                retry -= 1
+                if retry >= 0:
+                    sleep(3)
+                    log(f"Retrying Blackboard connection... ({retry} times left)")
+                else:
+                    exit(1)
+
+        log("Blackboard connection success")
 
     def get_notice_data(self) -> dict:
         """获取原始通知数据"""
@@ -79,8 +111,8 @@ class Blackboard:
         try:
             notice_data = notice_response.json()
         except Exception as e:
-            print(f"Get notice data exception: {e}")
-            print(f"original response: \n{notice_response.text}")
+            log(f"Get notice data exception: {e}")
+            log(f"original response: \n{notice_response.text}")
             exit(1)
 
         return notice_data
@@ -103,8 +135,8 @@ class Blackboard:
         try:
             calendar_data = calendar_response.json()
         except Exception as e:
-            print(f"Get calendar data exception: {e}")
-            print(f"original response: \n{calendar_response.text}")
+            log(f"Get calendar data exception: {e}")
+            log(f"original response: \n{calendar_response.text}")
             exit(1)
 
         # 事实上只要查询的时间范围涉及了日程所在的那天，该日程就会出现在返回的查询结果中

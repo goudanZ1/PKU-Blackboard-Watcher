@@ -115,11 +115,12 @@ class NoticeHandler:
                 if record["should_notify"]:
                     self.notify_notice(record)
                 else:
-                    log(f"Notice ignored: {record['course']}-{record['title']}")
+                    log(f"Notice ignored: {record['title']}（{record['course']}）")
 
         # 5. 如果配置没有问题、之前的流程都成功完成（没有中途 exit），更新现在已处理过的通知记录
         #   （由于用户屏蔽而没有提醒的通知也保存在记录中，以后不必再处理）
         if self.is_init or len(updated_notice_record) > 0:
             new_notice_record = old_notice_record + updated_notice_record
             write_record_json(NOTICE_RECORD_PATH, new_notice_record)
-            log(f"Successfully processed {len(updated_notice_record)} notices")
+        
+        log(f"Successfully processed {len(updated_notice_record)} notices")
